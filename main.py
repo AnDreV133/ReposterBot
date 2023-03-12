@@ -1,7 +1,7 @@
 import threading
-import vk_api
-from vk_api.keyboard import VkKeyboard
-from vk_api.longpoll import VkLongPoll, VkEventType
+from libs.vk_api import vk_api
+from libs.vk_api.keyboard import VkKeyboard
+from libs.vk_api.longpoll import VkLongPoll, VkEventType
 
 # while True
 session = vk_api.VkApi(
@@ -40,7 +40,14 @@ def get_keyboard():
     return kb.get_keyboard()
 
 
-def create_file_for_remember_links(user_id):
+def create_file_for_links(user_id, links):
+    # проверка ссылки
+    # запись
+
+    links.replace(",", " ").replace(";", " ").replace(".", " ").split()
+
+
+
     return []
 
 
@@ -48,10 +55,7 @@ def add_link(user_id):
     for event in longpoll.listen():
         if event.type == VkEventType.MESSAGE_NEW:
             if event.user_id == user_id:
-                text = [
-                    wrong_link + "-- сообщество по этой ссылке ненайдено\n"
-                    for wrong_link in create_file_for_remember_links(user_id)
-                ]
+                #
 
                 send_msg(user_id, f"результаты:\n {text}", keyboard=get_keyboard())
 
