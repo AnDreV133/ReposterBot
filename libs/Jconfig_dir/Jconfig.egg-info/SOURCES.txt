@@ -1,0 +1,8 @@
+README.rst
+setup.py
+Jconfig/__init__.py
+Jconfig/config.py
+Jconfig.egg-info/PKG-INFO
+Jconfig.egg-info/SOURCES.txt
+Jconfig.egg-info/dependency_links.txt
+Jconfig.egg-info/top_level.txt

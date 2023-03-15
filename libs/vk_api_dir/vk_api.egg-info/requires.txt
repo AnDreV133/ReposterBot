@@ -1,0 +1,7 @@
+requests
+
+[vkaudio]
+beautifulsoup4
+
+[vkstreaming]
+websocket-client
