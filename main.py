@@ -1,7 +1,7 @@
 import threading
-from libs.vk_api import vk_api
-from libs.vk_api.keyboard import VkKeyboard
-from libs.vk_api.longpoll import VkLongPoll, VkEventType
+from libs.vk_api_dir import vk_api
+from libs.vk_api_dir.vk_api.keyboard import VkKeyboard
+from libs.vk_api_dir.vk_api.longpoll import VkLongPoll, VkEventType
 
 # while True
 session = vk_api.VkApi(
@@ -45,7 +45,7 @@ def create_file_for_links(user_id, links):
     # запись
 
     links.replace(",", " ").replace(";", " ").replace(".", " ").split()
-
+    print(links)
 
 
     return []
@@ -61,6 +61,9 @@ def add_link(user_id):
 
 
 # хорошее отображение прошедших ссылок
+
+def test():
+    create_file_for_links(1, "https://vk.com/so_ieitus https://vk.com/gvozdibelgorod")
 
 if __name__ == '__main__':
     for event in longpoll.listen():
