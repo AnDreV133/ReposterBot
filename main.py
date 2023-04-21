@@ -54,7 +54,7 @@ def del_links_sql_execute(user_id, list_of_links_for_del):
 
 
 def repost_by_links(user_id, hours=None):
-    pass
+
 
 
 def clean_history(user_id):
