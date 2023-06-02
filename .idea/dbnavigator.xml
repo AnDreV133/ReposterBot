@@ -26,14 +26,16 @@
 --);
 
 create table if not exists main.linksT (
-  links_id unsigned big int not null,
-  link text,
-  foreign key (links_id) references usersT(user_id) on delete cascade 
+  user_id unsigned big int not null,
+  link varchar(500),
+  foreign key (user_id) references usersT(user_id) on delete cascade
 );
 
 drop table main.linksT;
+CREATE UNIQUE INDEX idx_links ON linksT (user_id, link);
+insert or ignore into linksT (user_id, link) values (49, '86531');
 
-insert into main.linksT (links_id, link) values (0, 'https://...');
+insert into main.linksT (user_id, link) values (0, 'https://...');
 insert into main.usersT (user_id, range_in_hours) values (1, 3);
 delete from main.linksT where user_id=0, link='https://...';
 select * from main.linksT;
