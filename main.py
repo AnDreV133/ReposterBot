@@ -12,11 +12,12 @@ DFT_SIZE = 200
 RANGE_OF_DOMAINS = 20
 user_id = 0
 
-help_com_see = " Команда имеет вид:\n/see\n/see size <значение>\n/see amount <значение>"
-help_com_set = " Команда имеет вид:\n/set size <значение настройки>\n/set amount <значение настройки>"
-help_com_show = " Команда имеет вид:\n/show"
-help_com_add = " Команда имеет вид:\n/add <домен/ссылка> ..."
-help_com_del = " Команда имеет вид:\n/del\n/del <домен/ссылка> ..."
+help_command = "Команда имеет вид:\n"
+help_see = "/see\n/see size <значение>\n/see amount <значение>\n"
+help_set = "/set size <значение настройки>\n/set amount <значение настройки>\n/set show\n"
+help_show = "/show\n"
+help_add = "/add <домен/ссылка> ...\n"
+help_del = "/del\n/del <домен/ссылка> ...\n"
 
 load_dotenv()
 
@@ -38,7 +39,7 @@ sql.execute(
     CREATE TABLE IF NOT EXISTS usersT ( 
       user_id UNSIGNED BIG INT PRIMARY KEY NOT NULL,
       amount UNSIGNED BIG INT,
-      size INT
+      size UNSIGNED BIG INT
     );
     """
 )
@@ -73,6 +74,10 @@ def get_user_domains():
     return list(map(lambda x: x[0], sql.execute(f"SELECT domain FROM domainsT WHERE user_id={user_id};").fetchall()))
 
 
+def is_user_have_domain():
+    return True if sql.execute(f"SELECT domain FROM domainsT WHERE user_id={user_id} LIMIT 1;").fetchone() else False
+
+
 def get_domain_from_domain(domain):
     return domain[domain.rfind('/') + 1:]
 
@@ -87,44 +92,35 @@ def handle_error(err_msg, execute, log_msg):
     print(log_msg)
 
 
+def get_keyboard_by_groups_with_command(command):
+    kb = VkKeyboard(one_time=True)
+    domains_list = get_user_domains()
+    length = len(domains_list) if len(domains_list) < RANGE_OF_DOMAINS else RANGE_OF_DOMAINS
+    add_button = lambda x: kb.add_button(command + " " + x)
+    for i in range(length):
+        add_button(domains_list[i])
+        if (i + 1) % 3 == 0 and i != length - 1:
+            kb.add_line()
+
+    # if length % 3 == 1:
+    #     add_button(domains_list[length - 1])
+
+    return kb.get_keyboard()
+
+
 def keyboard_for_delete_domains():
     kb = VkKeyboard(one_time=True)
     domains_list = get_user_domains()
-    length = len(domains_list)
+    length = len(domains_list) if len(domains_list) < RANGE_OF_DOMAINS else RANGE_OF_DOMAINS
     add_del_button = lambda x: kb.add_button("/del " + x)
-    for i in range((length if length < RANGE_OF_DOMAINS else RANGE_OF_DOMAINS) // 2 - 2):
+    for i in range(length // 2):
         add_del_button(domains_list[i])
         add_del_button(domains_list[i + 1])
-        kb.add_line()
-
-    if length >= 2:
-        add_del_button(domains_list[length - 3])
-        add_del_button(domains_list[length - 2])
+        if i != length // 2 - 1:
+            kb.add_line()
 
     if length % 2 == 1:
         add_del_button(domains_list[length - 1])
-
-    send_msg("Домены групп для удаления, нажмите, чтобы удалить:", keyboard=kb.get_keyboard())
-
-
-def keyboard_for_see_posts_one_group():
-    kb = VkKeyboard(one_time=True)
-    domains_list = get_user_domains()
-    length = len(domains_list)
-    add_del_button = lambda x: kb.add_button("/see " + x)
-    for i in range((length if length < RANGE_OF_DOMAINS else RANGE_OF_DOMAINS) // 2 - 2):
-        add_del_button(domains_list[i])
-        add_del_button(domains_list[i + 1])
-        kb.add_line()
-
-    if length >= 2:
-        add_del_button(domains_list[length - 3])
-        add_del_button(domains_list[length - 2])
-
-    if length % 2 == 1:
-        add_del_button(domains_list[length - 1])
-
-    send_msg("Домены групп для просмотра постов, нажмите, чтобы посмотреть:", keyboard=kb.get_keyboard())
 
 
 def send_msg(msg, keyboard=None):
@@ -193,13 +189,20 @@ def add_domains_sql_execute(list_of_domains):
 
 
 def del_domains_sql_execute(list_of_domains_for_del):
-    if list_of_domains_for_del:
+    if list_of_domains_for_del[0] == '':
+        send_msg(
+            "Домены групп для удаления появились на панели клавиатуры, нажмите на домен, чтобы удалить:",
+            keyboard=get_keyboard_by_groups_with_command("/del")
+        )
+    else:
+        text_msg = "Вы удалили:\n"
         sql.execute("BEGIN;")
         for domain in list_of_domains_for_del:
             sql.execute(f"DELETE FROM domainsT WHERE user_id={user_id} AND domain='{get_domain_from_domain(domain)}';")
+            text_msg += f"• {domain}\n"
         sql.execute("COMMIT;")
-    else:
-        keyboard_for_delete_domains()
+
+        send_msg(text_msg)
 
 
 def repost_by_domains(size=None, amount=None):
@@ -225,17 +228,17 @@ def clean_history():
     sql.execute("COMMIT;")
 
 
-def set_amount(amount):
+def set_amount(amount: int):
     sql.execute("BEGIN;")
-    sql.execute(f"UPDATE usersT SET amount={amount} WHERE user_id={user_id} LIMIT 1;")
+    sql.execute(f"UPDATE usersT SET amount={amount} WHERE user_id={user_id};")
     sql.execute("COMMIT;")
 
     send_msg(f"Количество отображаемых постов: {amount}.")
 
 
-def set_size(size):
+def set_size(size: int):
     sql.execute("BEGIN;")
-    sql.execute(f"UPDATE usersT SET size={size} WHERE user_id={user_id} LIMIT 1;")
+    sql.execute(f"UPDATE usersT SET size={size} WHERE user_id={user_id};")
     sql.execute("COMMIT;")
 
     send_msg(f"Количество отображаемых сиволов: {size}.")
@@ -290,8 +293,6 @@ def main():
 
             # обрабатываем сообщение
             match command:
-                case "/start", "/help":
-                    send_msg("<описание команд>")
                 case "/see":
                     if not list_arg[0]:
                         repost_by_domains()
@@ -300,25 +301,28 @@ def main():
                     elif list_arg[0] == "amount" and list_arg[1].isdigit() and len(list_arg) == 2:
                         repost_by_domains(amount=list_arg[1])
                     elif list_arg[0] == "one" and len(list_arg) == 1:
-                        keyboard_for_see_posts_one_group()
+                        send_msg(
+                            "Домены групп для просмотра постов появились на панели клавиатуры, нажмите на домен, чтобы посмотреть.",
+                            keyboard=get_keyboard_by_groups_with_command("/see")
+                        )
                     elif not get_user_domains():
                         send_msg("Вы ещё не добавили сообщества. Сделайте это с помощью команды: /add.")
                     else:
-                        send_msg("Ошибка введения постфикса." + help_com_see)
+                        send_msg("Ошибка введения постфикса. " + help_command + help_see)
                 case "/show":
                     if not list_arg[0]:
                         show_tracked_domains()
                     else:
-                        send_msg("Присутствуют лишние аргументы." + help_com_show)
+                        send_msg("Присутствуют лишние аргументы. " + help_command + help_show)
                 case "/add":
                     if list_arg[0]:
                         add_domains_sql_execute(list_arg)
                     else:
-                        send_msg("Вы ничего не ввели." + help_com_add)
+                        send_msg("Вы ничего не ввели. " + help_command + help_add)
                 case "/del":
-                    if get_user_domains() and list_arg[0] == "/all":
+                    if is_user_have_domain() and list_arg[0] == "/all":
                         del_all_domains_sql_execute()
-                    elif get_user_domains():
+                    elif is_user_have_domain():
                         del_domains_sql_execute(list_arg)
                     else:
                         send_msg("Вы ещё не добавили сообщества. Сделайте это с помощью команды: /add.")
@@ -327,13 +331,15 @@ def main():
                         set_amount(int(list_arg[1]))
                     elif list_arg[0] == "size" and list_arg[1].isdigit():
                         set_size(int(list_arg[1]))
-                    elif list_arg[0] == "/show":
+                    elif list_arg[0] == "show":
                         show_settings()
                     else:
-                        send_msg("Ошибка считывания команды." + help_com_set)
+                        send_msg("Ошибка считывания команды. " + help_command + help_set)
                     # ...
                 case "/delete_self":
                     clean_history()
+                case _:
+                    send_msg("Список команд:\n" + help_add + help_show + help_see + help_set + help_del)
 
 
 if __name__ == '__main__':
@@ -341,6 +347,4 @@ if __name__ == '__main__':
         try:
             main()
         except:
-            pass
-
-# питон? как красивая речка, дно которой усеяно битыми стёклами, неразорвавшимися снарядами и просто плавающими минами.
+            print("\n----------------exception--------------\n")

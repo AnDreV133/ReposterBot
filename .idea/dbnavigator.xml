@@ -43,7 +43,10 @@ select range_in_hours from main.usersT;
 select * from main.usersT WHERE user_id=2 ;
 update main.usersT set range_in_hours=4 WHERE user_id=0;
 
-select * from main.usersT WHERE user_id=0;]]></console>
+select * from main.usersT WHERE user_id=0;
+
+
+UPDATE usersT SET range_in_hours=3 WHERE user_id=0 LIMIT 1;]]></console>
     </connection>
   </component>
   <component name="DBNavigator.Project.DatabaseEditorStateManager">
