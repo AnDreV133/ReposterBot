@@ -1,15 +1,14 @@
 import os
-import random
 
+import telebot
 import vk_api
 import sqlite3
 from dotenv import load_dotenv
-from vk_api.keyboard import VkKeyboard
-from vk_api.longpoll import VkLongPoll, VkEventType
+from telebot.types import ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, Message
 
 DFT_amount = 2
 DFT_SIZE = 200
-RANGE_OF_DOMAINS = 20
+RANGE_OF_DOMAINS = 50
 user_id = 0
 
 help_command = "Команда имеет вид:\n"
@@ -21,23 +20,22 @@ help_del = "/del\n/del <домен/ссылка> ...\n"
 
 load_dotenv()
 
-session = vk_api.VkApi(token=os.getenv("VK_GROUP_TOKEN"))
-longpoll = VkLongPoll(session)
-vk = session.get_api()
+# session = vk_api.VkApi(token=os.getenv("VK_GROUP_TOKEN"))
+# longpoll = VkLongPoll(session)
+# vk = session.get_api()
+bot = telebot.TeleBot(os.getenv("TELEGRAM_TOKEN"))
 app = vk_api.VkApi(token=os.getenv("VK_APP_TOKEN")).get_api()
 
-db = sqlite3.connect("mainDB.db")
+db = sqlite3.connect("mainDB.db", check_same_thread=False)
 sql = db.cursor()
 
 sql.execute("BEGIN;")
-# sql.execute("drop table usersT")
-# sql.execute("drop table linksT")
 # user_id | amount | size
 # table of users with personal settings
 sql.execute(
     """
     CREATE TABLE IF NOT EXISTS usersT ( 
-      user_id UNSIGNED BIG INT PRIMARY KEY NOT NULL,
+      user_id UNSIGNED BIG INT NOT NULL,
       amount UNSIGNED BIG INT,
       size UNSIGNED BIG INT
     );
@@ -52,14 +50,11 @@ sql.execute(
       user_id UNSIGNED BIG INT NOT NULL,
       domain VARCHAR(50),
       
-      FOREIGN KEY (user_id) REFERENCES usersT(user_id) ON DELETE CASCADE 
+      CONSTRAINT unique_pair UNIQUE (user_id, domain)
+      FOREIGN KEY (user_id) REFERENCES usersT(user_id) ON DELETE CASCADE
     );
     """
 )
-
-# fields of domains becomes unique for each user
-sql.execute("DROP INDEX IF EXISTS idx_domains;")
-sql.execute("CREATE UNIQUE INDEX idx_domains ON domainsT (domain);")
 sql.execute("COMMIT;")
 
 print(sql.execute("SELECT * FROM usersT").fetchall())
@@ -68,6 +63,23 @@ print(sql.execute("SELECT * FROM domainsT").fetchall())
 
 def test():
     pass
+
+
+def parse_text_of_post(text: str, size: int):
+    is_parse = False
+    res_text = ""
+    for c in text:
+        if size == 0:
+            break
+        elif c == '[':
+            is_parse = True
+        elif c == '|' or c == ']':
+            is_parse = False
+        elif not is_parse:
+            res_text += (c if c != '\n' else ' ')
+            size -= 1
+
+    return res_text + "..."
 
 
 def get_user_domains():
@@ -93,48 +105,18 @@ def handle_error(err_msg, execute, log_msg):
 
 
 def get_keyboard_by_groups_with_command(command):
-    kb = VkKeyboard(one_time=True)
+    kb = ReplyKeyboardMarkup(one_time_keyboard=True)
     domains_list = get_user_domains()
     length = len(domains_list) if len(domains_list) < RANGE_OF_DOMAINS else RANGE_OF_DOMAINS
-    add_button = lambda x: kb.add_button(command + " " + x)
     for i in range(length):
-        add_button(domains_list[i])
-        if (i + 1) % 3 == 0 and i != length - 1:
-            kb.add_line()
+        kb.add(command + " " + domains_list[i])
 
-    # if length % 3 == 1:
-    #     add_button(domains_list[length - 1])
-
-    return kb.get_keyboard()
-
-
-def keyboard_for_delete_domains():
-    kb = VkKeyboard(one_time=True)
-    domains_list = get_user_domains()
-    length = len(domains_list) if len(domains_list) < RANGE_OF_DOMAINS else RANGE_OF_DOMAINS
-    add_del_button = lambda x: kb.add_button("/del " + x)
-    for i in range(length // 2):
-        add_del_button(domains_list[i])
-        add_del_button(domains_list[i + 1])
-        if i != length // 2 - 1:
-            kb.add_line()
-
-    if length % 2 == 1:
-        add_del_button(domains_list[length - 1])
+    return kb
 
 
 def send_msg(msg, keyboard=None):
     # функция для отправки сообщения пользователю
-    min_rand_int = -9223372036854775807
-    max_rand_int = 9223372036854775807
-    post = {
-        "peer_id": user_id,
-        "message": msg,
-        "keyboard": keyboard,
-        "random_id": random.randint(min_rand_int, max_rand_int)
-    }
-
-    session.method("messages.send", post)
+    bot.send_message(user_id, msg, reply_markup=keyboard)
 
 
 def send_repost(domain, settings_of_user):
@@ -142,13 +124,20 @@ def send_repost(domain, settings_of_user):
     amount = settings_of_user[0]
     size = settings_of_user[1]
 
-    items = app.wall.get(domain=domain, count=amount)['items']
+    # получаем объект из которых получим публикации
+    try:
+        items = app.wall.get(domain=domain, count=amount)['items']
+    except vk_api.exceptions.ApiError:
+        send_msg(f"Не удалось получить публикации группы по домену: {domain}.")
+        return
+
+    # ссылка на сообщество
     msg_text = app.groups.getById(group_id=domain)[0][
-                   'name'] + '\n' + domain + f" - {add_path(domain)}" + "\n\n----\n\n"
+                   'name'] + '\n' + domain + f" - {'https://' + domain}" + "\n\n----\n\n"
     for item in items:
-        domain_to_post = add_path(f"wall{item['owner_id']}_{item['id']}") + '\n'
-        text_of_post = item['text'][:size].replace('\n', ' ') + "...\n\n"
-        msg_text += domain_to_post + text_of_post
+        # создание текста из ссылки и текста поста
+        msg_text += f"https://wall{item['owner_id']}_{item['id']}" + '\n' \
+                    + parse_text_of_post(item['text'], size)
     msg_text += "----"
 
     send_msg(msg_text)
@@ -205,16 +194,21 @@ def del_domains_sql_execute(list_of_domains_for_del):
         send_msg(text_msg)
 
 
-def repost_by_domains(size=None, amount=None):
-    # get settings
-    settings_of_user = list(sql.execute(f"SELECT amount, size FROM usersT WHERE user_id={user_id};").fetchone())
+# @bot.message_handler(commands=["/see"])
+def repost_by_domains(mod=None):
+    # получаем настройки
+    try:
+        settings_of_user = list(sql.execute(f"SELECT amount, size FROM usersT WHERE user_id={user_id};").fetchone())
+    except TypeError:
+        show_tracked_domains()
+        return
 
-    if amount:
-        settings_of_user[0] = amount
-    if size:
-        settings_of_user[1] = size
+    if mod == "amount":
+        settings_of_user[0] = mod
+    elif mod == "size":
+        settings_of_user[1] = mod
 
-    # получаем список ссылок сообществ
+    # получаем список доменов сообществ
     domains = get_user_domains()
 
     print(domains)
@@ -262,7 +256,7 @@ def show_tracked_domains():
     if list_of_domains:
         text_msg = "Ваши отслеживаемые группы:\n\n"
         for domain in list_of_domains:
-            text_msg += f"• {add_path(domain)} - {domain} - {app.groups.getById(group_id=domain)[0]['name']}\n"
+            text_msg += f"• {'https://' + domain} - {domain} - {app.groups.getById(group_id=domain)[0]['name']}\n"
     else:
         text_msg = "Вы ещё не добавили сообщества. Сделайте это с помощью команды: /add"
 
@@ -277,74 +271,90 @@ def del_all_domains_sql_execute():
     send_msg("Все группы удалены.")
 
 
-def main():
-    for event in longpoll.listen():
-        if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-            # получаем текст сообщения
-            temp = event.text.split()
-            command = temp[0]
-            list_arg = temp[1:] if temp[1:] else [""]
-            print("command:", command, "| list of arguments:", list_arg)
+def to_help_info():
+    send_msg("Список команд:\n"
+             + help_add
+             + help_show
+             + help_see
+             + help_set
+             + help_del)
 
-            # получаем ID написавшего
-            global user_id
-            user_id = event.user_id
-            print("user ID:", user_id)
 
-            # обрабатываем сообщение
-            match command:
-                case "/see":
-                    if not list_arg[0]:
-                        repost_by_domains()
-                    elif list_arg[0] == "size" and list_arg[1].isdigit() and len(list_arg) == 2:
-                        repost_by_domains(size=list_arg[1])
-                    elif list_arg[0] == "amount" and list_arg[1].isdigit() and len(list_arg) == 2:
-                        repost_by_domains(amount=list_arg[1])
-                    elif list_arg[0] == "one" and len(list_arg) == 1:
-                        send_msg(
-                            "Домены групп для просмотра постов появились на панели клавиатуры, нажмите на домен, чтобы посмотреть.",
-                            keyboard=get_keyboard_by_groups_with_command("/see")
-                        )
-                    elif not get_user_domains():
-                        send_msg("Вы ещё не добавили сообщества. Сделайте это с помощью команды: /add.")
-                    else:
-                        send_msg("Ошибка введения постфикса. " + help_command + help_see)
-                case "/show":
-                    if not list_arg[0]:
-                        show_tracked_domains()
-                    else:
-                        send_msg("Присутствуют лишние аргументы. " + help_command + help_show)
-                case "/add":
-                    if list_arg[0]:
-                        add_domains_sql_execute(list_arg)
-                    else:
-                        send_msg("Вы ничего не ввели. " + help_command + help_add)
-                case "/del":
-                    if is_user_have_domain() and list_arg[0] == "/all":
-                        del_all_domains_sql_execute()
-                    elif is_user_have_domain():
-                        del_domains_sql_execute(list_arg)
-                    else:
-                        send_msg("Вы ещё не добавили сообщества. Сделайте это с помощью команды: /add.")
-                case "/set":
-                    if list_arg[0] == "amount" and list_arg[1].isdigit():
-                        set_amount(int(list_arg[1]))
-                    elif list_arg[0] == "size" and list_arg[1].isdigit():
-                        set_size(int(list_arg[1]))
-                    elif list_arg[0] == "show":
-                        show_settings()
-                    else:
-                        send_msg("Ошибка считывания команды. " + help_command + help_set)
-                    # ...
-                case "/delete_self":
-                    clean_history()
-                case _:
-                    send_msg("Список команд:\n" + help_add + help_show + help_see + help_set + help_del)
+def to_start():
+    send_msg("________________________________________________________")
+    to_help_info()
+
+
+@bot.message_handler()
+def main(message: Message):
+    # получаем текст сообщения
+    temp = message.text.split()
+    command = temp[0]
+    list_arg = temp[1:] if temp[1:] else [""]
+    print("command:", command, "| list of arguments:", list_arg)
+
+    # получаем ID написавшего
+    global user_id
+    user_id = message.chat.id
+    print("user ID:", user_id)
+
+    # обрабатываем сообщение
+    match command:
+        case "/see":
+            if not list_arg[0]:
+                repost_by_domains()
+            elif list_arg[1].isdigit() and len(list_arg) == 2:
+                repost_by_domains(mod=list_arg[1])
+            elif list_arg[0] == "one" and len(list_arg) == 1:
+                send_msg(
+                    "Домены групп для просмотра постов появились на панели клавиатуры, нажмите на домен, чтобы посмотреть.",
+                    keyboard=get_keyboard_by_groups_with_command("/see"))
+            elif not get_user_domains():
+                send_msg("Вы ещё не добавили сообщества. Сделайте это с помощью команды: /add.")
+            else:
+                send_msg("Ошибка введения постфикса. " + help_command + help_see)
+        case "/show":
+            if not list_arg[0]:
+                show_tracked_domains()
+            else:
+                send_msg("Присутствуют лишние аргументы. " + help_command + help_show)
+        case "/add":
+            if list_arg[0]:
+                add_domains_sql_execute(list_arg)
+            else:
+                send_msg("Вы ничего не ввели. " + help_command + help_add)
+        case "/del":
+            if is_user_have_domain() and list_arg[0] == "/all":
+                del_all_domains_sql_execute()
+            elif is_user_have_domain():  # ----------------------------------------------------------------------------------------
+                del_domains_sql_execute(list_arg)
+            else:
+                send_msg("Вы ещё не добавили сообщества. Сделайте это с помощью команды: /add.")
+        case "/set":
+            if list_arg[0] == "amount" and list_arg[1].isdigit():
+                set_amount(int(list_arg[1]))
+            elif list_arg[0] == "size" and list_arg[1].isdigit():
+                set_size(int(list_arg[1]))
+            elif list_arg[0] == "show":
+                show_settings()
+            else:
+                send_msg("Ошибка считывания команды. " + help_command + help_set)
+            # ...
+        case "/delete_self":
+            clean_history()
+        case "/start":
+            to_start()
+        case "/help":
+            to_help_info()
+        case "/info":
+            to_help_info()
 
 
 if __name__ == '__main__':
-    while (True):
-        try:
-            main()
-        except:
-            print("\n----------------exception--------------\n")
+    # while (True):
+    #     try:
+    bot.polling(none_stop=True)
+# except:
+#     print("\n----------------exception--------------\n")
+
+# Давай сделай меня хостом: https://beget.com/ru/hosting/free

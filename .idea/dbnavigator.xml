@@ -33,7 +33,7 @@ CREATE TABLE if not exists main.linksT (
 
 DROP TABLE main.linksT;
 CREATE UNIQUE INDEX idx_links ON linksT (user_id, link);
-INSERT OR IGNORE INTO linksT (user_id, link) values (49, '86531');
+INSERT OR IGNORE INTO linksT (user_id, link) values (48, '86531');
 
 INSERT INTO main.linksT (user_id, link) values (0, 'https://...');
 INSERT INTO main.usersT (user_id, range_in_hours) values (1, 3);
